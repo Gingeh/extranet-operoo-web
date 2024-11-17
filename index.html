@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+  <style>
+    h1 {
+      font-size: 14pt;
+      margin-bottom: 5px;
+    }
+
+    ol {
+      margin-top: 5px;
+    }
+
+    table {
+      margin: 10px;
+      border-collapse: collapse;
+    }
+
+    caption {
+      min-width: max-content;
+      padding: 3px;
+    }
+
+    th,
+    td {
+      border: 1px solid black;
+      padding: 3px;
+    }
+
+    .error {
+      width: max-content;
+      padding: 0.5em;
+      border: 1px solid red;
+      background-color: rgba(100% 0 0 / 10%);
+    }
+  </style>
+</head>
+
+<body>
+  <script type="module">
+    import init, { diff } from "./pkg/extranet_operoo_diff_rs.js";
+
+    window.go = async function () {
+      const extranet_files = document.getElementById("extranet").files;
+      if (extranet_files.length != 1) {
+        return;
+      }
+
+      const operoo_files = document.getElementById("operoo").files;
+      if (operoo_files.length != 1) {
+        return;
+      }
+
+      document.getElementById("results").textContent = "";
+
+      try {
+        const results = diff(
+          await extranet_files[0].bytes(),
+          await operoo_files[0].bytes(),
+        );
+
+        results.forEach((data, title, _) => {
+          const table = document.createElement("table");
+          document.getElementById("results").appendChild(table);
+          table.createCaption().innerText = title;
+          const thead = table.createTHead();
+          const headers = thead.insertRow();
+          const tbody = table.createTBody();
+
+          for (var i = 0; i < data.columns[0].get("values").length; i++) {
+            const row = tbody.insertRow();
+            for (const column of data.columns) {
+              const cell = row.insertCell();
+              const text = document.createTextNode(column.get("values")[i]);
+              cell.appendChild(text);
+            }
+          }
+
+          for (const column of data.columns) {
+            const th = document.createElement("th");
+            const text = document.createTextNode(column.get("name"));
+            th.appendChild(text);
+            headers.appendChild(th);
+          }
+        });
+      } catch (error) {
+        const error_message = document.createElement("pre");
+        error_message.className = "error";
+        error_message.innerText = error;
+        document.getElementById("results").appendChild(error_message);
+      }
+    };
+
+    await init();
+  </script>
+
+  <h1>Extranet</h1>
+  <ol>
+    <li>
+      Using a PC/Mac, go to
+      <a href="https://extranet.act.scouts.asn.au/">https://extranet.act.scouts.asn.au/</a>
+    </li>
+    <li>Log in to Extranet.</li>
+    <li>Select "Membership" from the menu in the top right of the page.</li>
+    <li>Hover over "Statistical Reports" and then click on "Group Report" in the sub-menu.</li>
+    <li>Click on the "Group Report" button.</li>
+    <li>Click on the number in the "Grand Total" column for your group.</li>
+    <li>Scroll down to the bottom of the newly opened page.</li>
+    <li>Click on "Export to CSV Format"</li>
+    <li>
+      Your browser will save a file with a name in the format
+      <code>YYYY-MM-DD.csv</code> (eg <code>2022-11-27.csv</code>)
+    </li>
+  </ol>
+  <h1>Operoo</h1>
+  <ol>
+    <li>
+      Using a PC/Mac, go to
+      <a href="https://groups.operoo.com/users/sign_in">https://groups.operoo.com/users/sign_in</a>
+    </li>
+    <li>Log in to Operoo.</li>
+    <li>If not already there, select your Group from the menu in the top left corner of the page.</li>
+    <li>Select "Reports/Archives" from the bottom of the menu bar on left hand side of the page.</li>
+    <li>Select "Export Profiles" from the list of options.</li>
+    <li>Click on the "Generate" button next to the "Export all profile fields" option.</li>
+    <li>Wait for the process to complete and then click on the newly generated profile report at the top of the page.</li>
+    <li>
+      Your browser will save a file with name in the format
+      <code>report_attachment-&lt;letters_and_numbers&gt;.xls</code>
+    </li>
+  </ol>
+
+  <label>
+    Extranet Report: <input type="file" id="extranet" accept=".csv" />
+  </label>
+  <br />
+  <label>
+    Operoo Report: <input type="file" id="operoo" accept=".xls" />
+  </label>
+  <br />
+  <button onclick="go()">Go!</button>
+
+  <div id="results"></div>
+</body>
+
+</html>

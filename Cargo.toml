@@ -1,0 +1,18 @@
+[package]
+name = "extranet-operoo-diff-rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = { version = "0.2.95", default-features = false }
+polars = { version = "0.44.2", default-features = false, features = ["csv", "lazy", "semi_anti_join", "serde", "concat_str", "strings", "is_in"] }
+sxd-xpath = { git = "https://github.com/nemosupremo/sxd-xpath", rev = "a8eeffe2a25bd76938638466b3cf670da5d8a9d3" }
+sxd-document = "0.3.2"
+serde-wasm-bindgen = "0.6.5"
+chrono = { version = "0.4.38", default-features = false, features = ["wasmbind"] }
+
+[profile.release]
+lto = true
