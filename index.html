@@ -58,8 +58,8 @@
 
       try {
         const results = diff(
-          await extranet_files[0].bytes(),
-          await operoo_files[0].bytes(),
+          new Uint8Array(await extranet_files[0].arrayBuffer()),
+          new Uint8Array(await operoo_files[0].arrayBuffer()),
         );
 
         results.forEach((data, title, _) => {
