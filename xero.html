@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>Extranet-Xero Diff</title>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+    <style>
+        h1 {
+            font-size: 14pt;
+            margin-bottom: 5px;
+        }
+
+        ol {
+            margin-top: 5px;
+        }
+
+        table {
+            margin: 10px;
+            border-collapse: collapse;
+        }
+
+        caption {
+            min-width: max-content;
+            padding: 3px;
+        }
+
+        th,
+        td {
+            border: 1px solid black;
+            padding: 3px;
+        }
+
+        .error {
+            width: max-content;
+            padding: 0.5em;
+            border: 1px solid red;
+            background-color: rgba(100% 0 0 / 10%);
+        }
+    </style>
+</head>
+
+<body>
+    <script type="module">
+        import init, { diff_ex_xe } from "./pkg/extranet_operoo_diff_rs.js";
+
+        window.go = async function () {
+            const extranet_files = document.getElementById("extranet").files;
+            if (extranet_files.length != 1) {
+                return;
+            }
+
+            const xero_files = document.getElementById("xero").files;
+            if (xero_files.length != 1) {
+                return;
+            }
+
+            document.getElementById("results").textContent = "";
+
+            try {
+                const results = diff_ex_xe(
+                    new Uint8Array(await extranet_files[0].arrayBuffer()),
+                    new Uint8Array(await xero_files[0].arrayBuffer()),
+                );
+
+                results.forEach((data, title, _) => {
+                    const table = document.createElement("table");
+                    document.getElementById("results").appendChild(table);
+                    table.createCaption().innerText = title;
+                    const thead = table.createTHead();
+                    const headers = thead.insertRow();
+                    const tbody = table.createTBody();
+
+                    for (var i = 0; i < data.columns[0].get("values").length; i++) {
+                        const row = tbody.insertRow();
+                        for (const column of data.columns) {
+                            const cell = row.insertCell();
+                            const text = document.createTextNode(column.get("values")[i]);
+                            cell.appendChild(text);
+                        }
+                    }
+
+                    for (const column of data.columns) {
+                        const th = document.createElement("th");
+                        const text = document.createTextNode(column.get("name"));
+                        th.appendChild(text);
+                        headers.appendChild(th);
+                    }
+                });
+            } catch (error) {
+                const error_message = document.createElement("pre");
+                error_message.className = "error";
+                error_message.innerText = error;
+                document.getElementById("results").appendChild(error_message);
+            }
+        };
+
+        await init();
+    </script>
+
+    <h1>Extranet</h1>
+    <ol>
+        <li>
+            Using a PC/Mac, go to
+            <a href="https://extranet.act.scouts.asn.au/">https://extranet.act.scouts.asn.au/</a>
+        </li>
+        <li>Log in to Extranet.</li>
+        <li>Select "Membership" from the menu in the top right of the page.</li>
+        <li>Hover over "Statistical Reports" and then click on "Group Report" in the sub-menu.</li>
+        <li>Click on the "Group Report" button.</li>
+        <li>Click on the number in the "Grand Total" column for your group.</li>
+        <li>Scroll down to the bottom of the newly opened page.</li>
+        <li>Click on "Export to CSV Format"</li>
+        <li>
+            Your browser will save a file with a name in the format
+            <code>YYYY-MM-DD.csv</code> (eg <code>2022-11-27.csv</code>)
+        </li>
+    </ol>
+    <h1>Xero</h1>
+    <ol>
+        <li>
+            Using a PC/Mac, go to
+            <a href="https://login.xero.com/">https://login.xero.com/</a>
+        </li>
+        <li>Log in to Xero.</li>
+        <li>Select "Contacts" from the menu at the top of the page.</li>
+        <li>Click on "Customers".</li>
+        <li>Click on the three dots in the top right of the page.</li>
+        <li>Click on "Export" (you may be required to verify your email beforehand)</li>
+        <li>Your browser will save a file called <code>Contacts.csv</code></li>
+    </ol>
+
+    <label>
+        Extranet Report: <input type="file" id="extranet" accept=".csv" />
+    </label>
+    <br />
+    <label>
+        Xero Report: <input type="file" id="xero" accept=".csv" />
+    </label>
+    <br />
+    <button onclick="go()">Go!</button>
+
+    <div id="results"></div>
+</body>
+
+</html>

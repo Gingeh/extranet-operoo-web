@@ -7,9 +7,93 @@ use polars::prelude::*;
 use sxd_xpath::nodeset::DocOrder;
 use wasm_bindgen::prelude::*;
 
+fn read_operoo(raw_xls: &[u8]) -> Result<LazyFrame, String> {
+    if !raw_xls.starts_with(b"  <?xml") {
+        return Err("The provided Operoo report appears to be invalid.".to_string());
+    }
+
+    // for some reason the operoo export has two extra spaces at the start
+    let data = std::str::from_utf8(&raw_xls[2..]).map_err(|e| e.to_string())?;
+
+    let package = sxd_document::parser::parse(data).map_err(|e| e.to_string())?;
+    let document = package.as_document();
+    let docorder = DocOrder::new(document);
+
+    let mut context = sxd_xpath::Context::new();
+    context.set_namespace("doc", "urn:schemas-microsoft-com:office:spreadsheet");
+
+    let factory = sxd_xpath::Factory::new();
+
+    let header_xpath = factory
+        .build("doc:Workbook/doc:Worksheet/doc:Table/doc:Row[1]/doc:Cell/doc:Data/text()")
+        .map_err(|e| e.to_string())?;
+
+    let sxd_xpath::Value::Nodeset(headers) = header_xpath
+        .evaluate(&context, document.root())
+        .map_err(|e| e.to_string())?
+    else {
+        return Err("Expected row to be nodeset".to_string());
+    };
+
+    const NEEDED_COLUMNS: &[&str] = &[
+        "Profile Id",
+        "Person Name",
+        "Profile Owner's Name ",
+        "Profile Owner's Email",
+        "Profile Owner's Mobile Phone",
+        "Person Birth Date",
+    ];
+
+    let mut column_length = None;
+    let mut columns = Vec::new();
+    for (i, column_name) in headers
+        .document_order(Some(&docorder))
+        .iter()
+        .filter_map(|node| node.text().map(|node| node.text()))
+        .enumerate()
+        .filter(|(_, column)| NEEDED_COLUMNS.contains(column))
+    {
+        let column_xpath = factory
+            .build(&format!(
+                "doc:Workbook/doc:Worksheet/doc:Table/doc:Row[position()>1]/doc:Cell[{}]/doc:Data",
+                i + 1
+            ))
+            .map_err(|e| e.to_string())?;
+
+        let sxd_xpath::Value::Nodeset(column_nodes) = column_xpath
+            .evaluate(&context, document.root())
+            .map_err(|e| e.to_string())?
+        else {
+            return Err("Expected column to be nodeset".to_string());
+        };
+
+        let mut column: Vec<_> = column_nodes
+            .document_order(Some(&docorder))
+            .iter()
+            .map(|node| {
+                node.children()
+                    .first()
+                    .and_then(|node| node.text())
+                    .map(|node| node.text())
+            })
+            .collect();
+
+        match column_length {
+            Some(length) => column.resize(length, None),
+            None => column_length = Some(column.len()),
+        }
+
+        columns.push(Series::new(column_name.into(), column).into_column());
+    }
+
+    Ok(DataFrame::new(columns).map_err(|e| e.to_string())?.lazy())
+}
+
 #[wasm_bindgen]
-pub fn diff(extranet_csv: &[u8], operoo_xls: &[u8]) -> Result<JsValue, String> {
-    check_report_types(extranet_csv, operoo_xls)?;
+pub fn diff_ex_op(extranet_csv: &[u8], operoo_xls: &[u8]) -> Result<JsValue, String> {
+    if !extranet_csv.starts_with(b"RegionID,") {
+        return Err("The provided Extranet report appears to be invalid.".to_string());
+    }
 
     let mut tables: BTreeMap<String, DataFrame> = BTreeMap::new();
 
@@ -340,92 +424,124 @@ pub fn diff(extranet_csv: &[u8], operoo_xls: &[u8]) -> Result<JsValue, String> {
     serde_wasm_bindgen::to_value(&tables).map_err(|e| format!("Error while reporting data: {e}"))
 }
 
-fn read_operoo(raw_xls: &[u8]) -> Result<LazyFrame, String> {
-    // for some reason the operoo export has two extra spaces at the start
-    let data = std::str::from_utf8(&raw_xls[2..]).map_err(|e| e.to_string())?;
-
-    let package = sxd_document::parser::parse(data).map_err(|e| e.to_string())?;
-    let document = package.as_document();
-    let docorder = DocOrder::new(document);
-
-    let mut context = sxd_xpath::Context::new();
-    context.set_namespace("doc", "urn:schemas-microsoft-com:office:spreadsheet");
-
-    let factory = sxd_xpath::Factory::new();
-
-    let header_xpath = factory
-        .build("doc:Workbook/doc:Worksheet/doc:Table/doc:Row[1]/doc:Cell/doc:Data/text()")
-        .map_err(|e| e.to_string())?;
-
-    let sxd_xpath::Value::Nodeset(headers) = header_xpath
-        .evaluate(&context, document.root())
-        .map_err(|e| e.to_string())?
-    else {
-        return Err("Expected row to be nodeset".to_string());
-    };
-
-    const NEEDED_COLUMNS: &[&str] = &[
-        "Profile Id",
-        "Person Name",
-        "Profile Owner's Name ",
-        "Profile Owner's Email",
-        "Profile Owner's Mobile Phone",
-        "Person Birth Date",
-    ];
-
-    let mut column_length = None;
-    let mut columns = Vec::new();
-    for (i, column_name) in headers
-        .document_order(Some(&docorder))
-        .iter()
-        .filter_map(|node| node.text().map(|node| node.text()))
-        .enumerate()
-        .filter(|(_, column)| NEEDED_COLUMNS.contains(column))
-    {
-        let column_xpath = factory
-            .build(&format!(
-                "doc:Workbook/doc:Worksheet/doc:Table/doc:Row[position()>1]/doc:Cell[{}]/doc:Data",
-                i + 1
-            ))
-            .map_err(|e| e.to_string())?;
-
-        let sxd_xpath::Value::Nodeset(column_nodes) = column_xpath
-            .evaluate(&context, document.root())
-            .map_err(|e| e.to_string())?
-        else {
-            return Err("Expected column to be nodeset".to_string());
-        };
-
-        let mut column: Vec<_> = column_nodes
-            .document_order(Some(&docorder))
-            .iter()
-            .map(|node| {
-                node.children()
-                    .first()
-                    .and_then(|node| node.text())
-                    .map(|node| node.text())
-            })
-            .collect();
-
-        match column_length {
-            Some(length) => column.resize(length, None),
-            None => column_length = Some(column.len()),
-        }
-
-        columns.push(Series::new(column_name.into(), column).into_column());
-    }
-
-    Ok(DataFrame::new(columns).map_err(|e| e.to_string())?.lazy())
-}
-
-fn check_report_types(extranet_csv: &[u8], operoo_xls: &[u8]) -> Result<(), String> {
+#[wasm_bindgen]
+pub fn diff_ex_xe(extranet_csv: &[u8], xero_csv: &[u8]) -> Result<JsValue, String> {
     if !extranet_csv.starts_with(b"RegionID,") {
         return Err("The provided Extranet report appears to be invalid.".to_string());
     }
 
-    if !operoo_xls.starts_with(b"  <?xml") {
-        return Err("The provided Operoo report appears to be invalid.".to_string());
+    if !xero_csv.starts_with(b"*ContactName,") {
+        return Err("The provided Xero report appears to be invalid.".to_string());
     }
 
-    Ok(())
+    let mut tables: BTreeMap<String, DataFrame> = BTreeMap::new();
+
+    let extranet = CsvReadOptions::default()
+        .with_ignore_errors(true)
+        .into_reader_with_file_handle(Cursor::new(extranet_csv))
+        .finish()
+        .map_err(|e| format!("Error while reading extranet data: {e}"))?
+        .lazy();
+
+    let xero = CsvReadOptions::default()
+        .with_ignore_errors(true)
+        .into_reader_with_file_handle(Cursor::new(xero_csv))
+        .finish()
+        .map_err(|e| format!("Error while reading xero data: {e}"))?
+        .lazy();
+
+    let missing_from_xero = extranet
+        .clone()
+        .join(
+            xero.clone(),
+            [col("RegID")],
+            [col("AccountNumber")],
+            JoinArgs::new(JoinType::Anti),
+        )
+        .select([col("RegID"), col("FullName").alias("Name")])
+        .collect()
+        .map_err(|e| format!("Error while processing data: {e}"))?;
+
+    if missing_from_xero.shape().0 != 0 {
+        tables.insert("Missing from Xero".to_string(), missing_from_xero);
+    }
+
+    let missing_from_extranet = xero
+        .clone()
+        .join(
+            extranet.clone(),
+            [col("AccountNumber")],
+            [col("RegID")],
+            JoinArgs::new(JoinType::Anti),
+        )
+        .filter(col("AccountNumber").is_not_null())
+        .select([
+            col("AccountNumber").alias("RegID"),
+            col("*ContactName").alias("Name"),
+        ])
+        .collect()
+        .map_err(|e| format!("Error while processing data: {e}"))?;
+
+    if missing_from_extranet.shape().0 != 0 {
+        tables.insert("Missing from Extranet".to_string(), missing_from_extranet);
+    }
+
+    let no_account_number = xero
+        .clone()
+        .filter(col("AccountNumber").is_null())
+        .select([col("*ContactName")])
+        .collect()
+        .map_err(|e| format!("Error while processing data: {e}"))?;
+
+    if no_account_number.shape().0 != 0 {
+        tables.insert("Xero accounts without IDs".to_string(), no_account_number);
+    }
+
+    let joined = extranet.join(
+        xero,
+        [col("RegID")],
+        [col("AccountNumber")],
+        JoinArgs::new(JoinType::Inner),
+    );
+
+    let different_email = joined
+        .select([
+            col("RegID"),
+            col("Primary Contact Email").alias("Extranet"),
+            col("EmailAddress").alias("Xero"),
+        ])
+        .filter(
+            col("Extranet")
+                .map(
+                    |col| {
+                        let out: StringChunked = col
+                            .str()?
+                            .into_iter()
+                            .map(|name| name.map(|x| x.to_lowercase()))
+                            .collect();
+                        Ok(Some(out.into_column()))
+                    },
+                    GetOutput::from_type(DataType::String),
+                )
+                .eq(col("Xero").map(
+                    |col| {
+                        let out: StringChunked = col
+                            .str()?
+                            .into_iter()
+                            .map(|name| name.map(|x| x.to_lowercase()))
+                            .collect();
+                        Ok(Some(out.into_column()))
+                    },
+                    GetOutput::from_type(DataType::String),
+                ))
+                .not(),
+        )
+        .collect()
+        .map_err(|e| format!("Error while processing data: {e}"))?;
+
+    if different_email.shape().0 != 0 {
+        tables.insert("Different Emails".to_string(), different_email);
+    }
+
+    serde_wasm_bindgen::to_value(&tables).map_err(|e| format!("Error while reporting data: {e}"))
 }

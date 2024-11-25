@@ -41,7 +41,7 @@
 
 <body>
   <script type="module">
-    import init, { diff } from "./pkg/extranet_operoo_diff_rs.js";
+    import init, { diff_ex_op } from "./pkg/extranet_operoo_diff_rs.js";
 
     window.go = async function () {
       const extranet_files = document.getElementById("extranet").files;
@@ -57,7 +57,7 @@
       document.getElementById("results").textContent = "";
 
       try {
-        const results = diff(
+          const results = diff_ex_op(
           new Uint8Array(await extranet_files[0].arrayBuffer()),
           new Uint8Array(await operoo_files[0].arrayBuffer()),
         );
